@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.16)
+find_package (ticables2)
+find_package (pthread)
+add_executable (tibridge main.c)
+target_link_libraries (tibridge LINK_PUBLIC ticables2)
+target_link_libraries (tibridge LINK_PUBLIC pthread)
