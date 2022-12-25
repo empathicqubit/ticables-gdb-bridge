@@ -4,13 +4,34 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+        
         {
-            "name": "(gdb) Starten",
+            "name": "tibridge",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/ticat",
+            "program": "${workspaceFolder}/build/tibridge",
             "args": [],
-            "stopAtEntry": false,
+            "stopAtEntry": true,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "build",
+            "setupCommands": [
+                {
+                    "description": "Automatische Strukturierung und Einrückung für \"gdb\" aktivieren",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "tikeys",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/tikeys",
+            "args": ["--subtype=mirage", "--log-level=trace"],
+            "stopAtEntry": true,
             "cwd": "${workspaceFolder}",
             "environment": [],
             "externalConsole": false,
