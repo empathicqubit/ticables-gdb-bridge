@@ -54,12 +54,19 @@ void retry_send(unsigned char* send, int sendCount) {
     }
 }
 
+void ack() {
+    retry_send("+", 1);
+}
+
+void nack() {
+    retry_send("-", 1);
+}
+
 void retry_recv(unsigned char* recv, int recvCount) {
     log(LEVEL_DEBUG, "RECEIVED %d BYTES\n", recvCount);
     log(LEVEL_TRACE, "%.*s\n", recvCount, recv)
-    for(int c = 0; c < recvCount; c++) {
-        putchar(recv[c]);
-    }
+    int c = 0;
+    while((c += fwrite(&recv[c], 1, recvCount - c, stdout)) < recvCount);
     fflush(stdout);
 }
 
@@ -128,13 +135,13 @@ int main(void) {
 
     log(LEVEL_INFO, "INFO: Family %d, Variant %d\n", info.family, info.variant);
 
-    // FIXME Option to ignore first command or not
+    bool handle_acks = true;
     bool handled_first_recv = false;
 
     while(true) {
-        unsigned char recv[255];
+        unsigned char recv[1023];
         unsigned char current = 0;
-        unsigned char recvCount = 0;
+        int recvCount = 0;
         int c;
 
         log(LEVEL_DEBUG, "RECEIVE PHASE\n");
@@ -153,15 +160,33 @@ int main(void) {
                     }
                 } while(err);
                 recvCount += 2;
-                if(handled_first_recv) {
+
+                if(!handle_acks || handled_first_recv) {
                     retry_recv(recv, recvCount);
                 }
+                else {
+                    log(LEVEL_DEBUG, "Discarded the first packet\n");
+                }
+
+                if(handle_acks) {
+                    log(LEVEL_DEBUG, "Injecting an ACK\n");
+                    ack();
+                    handled_first_recv = true;
+                    recvCount = 0;
+                    continue;
+                }
+
                 recvCount = 0;
                 break;
             }
             else if(recvCount == 1) {
                 if(current == '-') {
-                    retry_recv(recv, recvCount);
+                    if(!handle_acks) {
+                        retry_recv(recv, recvCount);
+                    }
+                    else {
+                        log(LEVEL_DEBUG, "Discarding a NACK\n");
+                    }
                     recvCount = 0;
                     break;
                 }
@@ -171,19 +196,13 @@ int main(void) {
             }
         }
 
-        if(!handled_first_recv) {
-            handled_first_recv = true;
-            retry_send("+", 1);
-            continue;
-        }
-
         fd_set set;
         FD_ZERO(&set);
         FD_SET(0, &set);
         struct timeval timeout = { 1, 0 };
 
         log(LEVEL_DEBUG, "SEND PHASE\n");
-        while(select(1, &set, NULL, NULL, &timeout)) {
+        while(true) {
             unsigned char send[255];
             int sendCount = 0;
 
