@@ -42,6 +42,7 @@ void utils_parse_args(int argc, char *argv[]) {
         {0,0,0,0}
     };
 
+    optind = 0;
     int opt_index = 0;
     int opt;
     while((opt = getopt_long(argc, argv, "L:", long_opts, &opt_index)) != -1) {

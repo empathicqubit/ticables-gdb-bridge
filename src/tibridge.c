@@ -1,12 +1,13 @@
 #include <tilp2/ticables.h>
 #include <stdio.h>
 #include <fcntl.h>
-#include <stdbool.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include <error.h>
 #include <unistd.h>
 #include <signal.h>
+#include <getopt.h>
+#include <stdbool.h>
 
 #include "common/utils.h"
 
@@ -61,11 +62,30 @@ void retry_recv(unsigned char* recv, int recvCount) {
 
 int main(int argc, char *argv[]) {
     int err;
+    // z88dk-gdb doesn't like the ACKs -/+, so we just hide them
+    int handle_acks = 1;
 
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stdin, NULL, _IONBF, 0);
 
     utils_parse_args(argc, argv);
+
+    const struct option long_opts[] = {
+        {"handle-acks", no_argument, &handle_acks, 1},
+        {"no-handle-acks", no_argument, &handle_acks, 0},
+        {0,0,0,0}
+    };
+
+    optind = 0;
+    int opt_index = 0;
+    int opt;
+    while((opt = getopt_long(argc, argv, "", long_opts, &opt_index)) != -1) {
+        if(opt == 0 && long_opts[opt_index].flag) {
+            // Do nothing
+        }
+    }
+
+    log(LEVEL_DEBUG, "handle acks: %d\n", handle_acks);
 
     ticables_library_init();
 
@@ -77,7 +97,6 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // BEGIN DON'T DO THIS FOR TICALCS
     err = ticables_cable_open(handle);
     if(err) {
         log(LEVEL_ERROR, "Could not open cable: %d\n", err);
@@ -92,9 +111,7 @@ int main(int argc, char *argv[]) {
     }
 
     log(LEVEL_INFO, "INFO: Model %d, Port:%d, Family %d, Variant %d\n", model, port, info.family, info.variant);
-    // END DON'T DO THIS FOR TICALCS
 
-    bool handle_acks = true;
     bool handled_first_recv = false;
 
     while(true) {
