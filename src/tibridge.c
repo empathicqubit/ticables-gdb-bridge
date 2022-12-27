@@ -9,8 +9,6 @@
 
 #include "common/utils.h"
 
-static pthread_t tid;
-
 static CableHandle* cable_handle;
 
 void show_help() {
@@ -32,7 +30,7 @@ int hex(char ch) {
     return (-1);
 }
 
-uint8_t *hex2mem(const char *buf, uint8_t *mem, uint32_t count) {
+char *hex2mem(const char *buf, char *mem, uint32_t count) {
     unsigned char ch;
     for (int i = 0; i < count; i++)
     {
@@ -56,30 +54,30 @@ void reset_cable(void) {
     ticables_options_set_delay(cable_handle, 1);
     ticables_options_set_timeout(cable_handle, 5);
 
-    while(err = ticables_cable_open(cable_handle)) {
+    while((err = ticables_cable_open(cable_handle))) {
         log(LEVEL_ERROR, "Could not open cable: %d\n", err);
     }
 }
 
-void retry_send(unsigned char* send, int sendCount) {
+void retry_send(uint8_t* send, int sendCount) {
     unsigned char err = 0;
     log(LEVEL_DEBUG, "%d->", sendCount);
     log(LEVEL_TRACE, "%.*s\n", sendCount, send);
-    while(err = ticables_cable_send(cable_handle, send, sendCount)) {
+    while((err = ticables_cable_send(cable_handle, send, sendCount))) {
         log(LEVEL_ERROR, "Error sending: %d", err);
         reset_cable();
     }
 }
 
 void ack() {
-    retry_send("+", 1);
+    retry_send((uint8_t*)"+", 1);
 }
 
 void nack() {
-    retry_send("-", 1);
+    retry_send((uint8_t*)"-", 1);
 }
 
-void retry_recv(unsigned char* recv, int recvCount) {
+void retry_recv(uint8_t* recv, int recvCount) {
     log(LEVEL_DEBUG, "%d<-", recvCount);
     log(LEVEL_TRACE, "%.*s\n", recvCount, recv)
     int c = 0;
@@ -150,7 +148,7 @@ int main(int argc, char *argv[]) {
     bool handled_first_recv = false;
 
     while(true) {
-        unsigned char recv[1023];
+        uint8_t recv[1023];
         unsigned char current = 0;
         int recvCount = 0;
         int c;
@@ -159,7 +157,7 @@ int main(int argc, char *argv[]) {
         log(LEVEL_DEBUG, "RECEIVE PHASE\n");
         while(true) {
             do {
-                if(err = ticables_cable_recv(cable_handle, &recv[recvCount], 1)) {
+                if((err = ticables_cable_recv(cable_handle, &recv[recvCount], 1))) {
                     log(LEVEL_ERROR, "error receiving: %d\n", err);
                 }
             } while(err);
@@ -167,7 +165,7 @@ int main(int argc, char *argv[]) {
             recvCount++;
             if(current == '#') {
                 do {
-                    if(err = ticables_cable_recv(cable_handle, &recv[recvCount], 2)) {
+                    if((err = ticables_cable_recv(cable_handle, &recv[recvCount], 2))) {
                         log(LEVEL_ERROR, "error receiving: %d\n", err);
                     }
                 } while(err);
@@ -182,7 +180,7 @@ int main(int argc, char *argv[]) {
                     log(LEVEL_DEBUG, "Discarded the first packet\n");
                 }
 
-                char *packet_char = strchr(recv, '$');
+                char *packet_char = strchr((const char*)recv, '$');
                 if(packet_char) {
                     packet_char++;
 
@@ -227,12 +225,11 @@ int main(int argc, char *argv[]) {
         fd_set set;
         FD_ZERO(&set);
         FD_SET(0, &set);
-        struct timeval timeout = { 1, 0 };
 
         log(LEVEL_INFO, ">");
         log(LEVEL_DEBUG, "SEND PHASE\n");
         while(true) {
-            unsigned char send[255];
+            uint8_t send[255];
             int sendCount = 0;
 
             while(true) {

@@ -17,7 +17,7 @@ file(GLOB TIBRIDGE_SRC src/tibridge.c)
 
 add_executable(tibridge ${COMMON_SRC} ${TIBRIDGE_SRC})
 
-target_compile_options(tibridge PRIVATE -Werror)
+target_compile_options(tibridge PRIVATE -Wall -Wno-format-security)
 
 target_include_directories(tibridge
 	PRIVATE src/include/
@@ -39,7 +39,7 @@ file(GLOB TIKEYS_SRC src/tikeys.c)
 
 add_executable(tikeys ${COMMON_SRC} ${TIKEYS_SRC})
 
-target_compile_options(tikeys PRIVATE -Werror)
+target_compile_options(tikeys PRIVATE -Wall -Wno-format-security)
 
 target_include_directories(tikeys
 	PRIVATE src/include/

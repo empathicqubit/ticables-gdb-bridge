@@ -9,8 +9,12 @@
 #include <tilp2/ticalcs.h>
 #include <tilp2/tifiles.h>
 #include <tilp2/keys83p.h>
+#include <stdbool.h>
 
 #include "common/utils.h"
+
+#define CABLE_TIMEOUT 20
+#define CABLE_FAST_TIMEOUT 2
 
 static char *subtype = "";
 static char *program = "";
@@ -18,16 +22,29 @@ static char *keys = "";
 static int reset_ram = 0;
 
 static CalcHandle *calc_handle = NULL;
+static CableHandle *cable_handle = NULL;
 static CalcModel model = CALC_NONE;
 
 void show_help() {
     log(LEVEL_INFO, "Syntax: tikeys [--reset-ram] [--keys=ABCDEFG123456789] [--subtype=mirage --program=PROGNAME]\n");
 }
 
+void cleanup() {
+    if(calc_handle) {
+        ticalcs_cable_detach(calc_handle);
+        ticalcs_handle_del(calc_handle);
+    }
+    if(cable_handle) {
+        ticables_cable_close(cable_handle);
+        ticables_handle_del(cable_handle);
+    }
+    ticables_library_exit();
+}
+
 static void send_key(uint32_t key, int retry) {
     usleep(100000);
     int err;
-    while(err = ticalcs_calc_send_key(calc_handle, key) && retry);
+    while((err = ticalcs_calc_send_key(calc_handle, key) && retry));
 }
 
 static int compare(const void *a, const void *b) {
@@ -37,8 +54,8 @@ static int compare(const void *a, const void *b) {
 static int get_program_index(GNode *tree, char* program) {
     char *names[1024];
     int n = 0;
+    bool has_program = false;
 
-    TreeInfo *info = tree->data;
     for (int i = 0; i < (int)g_node_n_children(tree); i++) {
         GNode *parent = g_node_nth_child(tree, i);
         VarEntry *ve = parent->data;
@@ -50,29 +67,72 @@ static int get_program_index(GNode *tree, char* program) {
             if(ve != NULL) {
                 const char *str_type = tifiles_vartype2string(model, ve->type);
 
+                bool is_program = strcmp(&str_type[strlen(str_type) - 4], "PRGM") == 0;
                 if (strlen(str_type) >= 4
                     && (
-                        strcmp(&str_type[strlen(str_type) - 4], "PRGM") == 0 
-                        || strcmp(str_type, "APPL") == 0
+                        is_program || strcmp(str_type, "APPL") == 0
                     )
                 ) {
+                    if(is_program && strcmp(ve->name, program) == 0) {
+                        has_program = true;
+                    }
+
                     names[n++] = ve->name;
+                    log(LEVEL_TRACE, "%s\n", names[n-1]);
                 }
             }
         }
     }
 
+    log(LEVEL_TRACE, "Sorting\n");
+
     qsort(names, n, sizeof(names[0]), compare);
     for(int i = 0; i < n; i++) {
+        log(LEVEL_TRACE, "%s\n", names[i]);
         if(strcmp(names[i], program) == 0) {
-            return i+1; // Finance is always at the beginning
+            // Finance is always at the beginning for apps
+            return has_program ? i : i+1;
         }
     }
 
     return -1;
 }
 
+int start_app(GNode *apps, char *app_name, int is_program) {
+    int noshell_idx = get_program_index(apps, app_name);
+    if(noshell_idx == -1) {
+        log(LEVEL_ERROR, "Could not find %s.\n", app_name);
+        return 1;
+    }
+
+    if(is_program) {
+        send_key(KEY83P_Prgm, 1);
+    }
+    else {
+        send_key(KEY83P_AppsMenu, 1);
+    }
+
+    for(int i = 0; i < noshell_idx; i++) {
+        send_key(KEY83P_Down, 1);
+    }
+    send_key(KEY83P_Enter, 0);
+
+    if(is_program) {
+        send_key(KEY83P_Enter, 0);
+    }
+
+    return 0;
+}
+
+void handle_sigint(int code) {
+    cleanup();
+}
+
 int main(int argc, char *argv[]) {
+    struct sigaction sa;
+    sa.sa_handler = handle_sigint;
+    sigaction(SIGINT, &sa, NULL);
+
     utils_parse_args(argc, argv);
 
     const struct option long_opts[] = {
@@ -106,22 +166,29 @@ int main(int argc, char *argv[]) {
         }
         else if(opt == 'h') {
             show_help();
+            cleanup();
             return 0;
         }
     }
 
+    log(LEVEL_TRACE, "Subtype: %s\n", subtype);
+    log(LEVEL_TRACE, "Keys: %s\n", keys);
+    log(LEVEL_TRACE, "Reset RAM: %d\n", reset_ram);
+
     int err;
     ticables_library_init();
 
-    CableHandle *cable_handle = utils_setup_cable();
+    cable_handle = utils_setup_cable();
     if(cable_handle == NULL) {
         log(LEVEL_ERROR, "Cable not found!\n");
+        cleanup();
         return 1;
     }
 
     err = ticables_cable_open(cable_handle);
     if(err) {
         log(LEVEL_ERROR, "Could not open cable: %d\n", err);
+        cleanup();
         return 1;
     }
 
@@ -129,12 +196,14 @@ int main(int argc, char *argv[]) {
     err = ticables_cable_get_device_info(cable_handle, &info);
     if(err) {
         log(LEVEL_ERROR, "Could not read device info: %d\n", err);
+        cleanup();
         return 1;
     }
 
     err = ticables_cable_close(cable_handle);
     if(err) {
         log(LEVEL_ERROR, "Could not close cable: %d\n", err);
+        cleanup();
         return 1;
     }
 
@@ -142,7 +211,7 @@ int main(int argc, char *argv[]) {
     
     cable_handle = utils_setup_cable();
 
-    ticables_options_set_timeout(cable_handle, 20);
+    ticables_options_set_timeout(cable_handle, CABLE_TIMEOUT);
 
     model = CALC_TI83P;
 
@@ -164,15 +233,19 @@ int main(int argc, char *argv[]) {
     }
     
     if(strlen(subtype) > 0 || strlen(program) > 0) {
+        log(LEVEL_DEBUG, "Got a program startup request.\n");
+
         send_key(KEY83P_Quit, 1);
         send_key(KEY83P_Clear, 1);
 
         if(strcmp(subtype, "asm") == 0) {
             log(LEVEL_ERROR, "asm is not supported! Start it manually!\n");
+            cleanup();
             return 1;
         }
         else if(strcmp(subtype, "tse") == 0) {
             log(LEVEL_ERROR, "tse is not supported! Start it manually!\n");
+            cleanup();
             return 1;
         }
         else if(strcmp(subtype, "ion") == 0) {
@@ -184,9 +257,17 @@ int main(int argc, char *argv[]) {
         }
         else if(strcmp(subtype, "mirage") == 0) {
             log(LEVEL_WARN, "Mirage will be started, but you still need to start the program yourself.\n");
-            send_key(KEY83P_AppsMenu, 1);
-            send_key(ticalcs_keys_83p('M')->normal.value, 1);
-            send_key(KEY83P_Enter, 0);
+
+            GNode *vars, *apps;
+            while((err = ticalcs_calc_get_dirlist(calc_handle, &vars, &apps)));
+
+            log(LEVEL_DEBUG, "Got dirlist\n");
+
+            if((err = start_app(apps, "MirageOS", 0))) {
+                log(LEVEL_ERROR, "Could not start MirageOS. Is it installed?\n");
+                cleanup();
+                return 1;
+            }
         }
         else if(strlen(program) > 0) {
             if(strcmp(subtype, "noshell") != 0) {
@@ -195,27 +276,31 @@ int main(int argc, char *argv[]) {
 
             log(LEVEL_INFO, "Verifying that noshell is correctly hooked.\n");
 
-            int err;
             GNode *vars, *apps;
-            while(err = ticalcs_calc_get_dirlist(calc_handle, &vars, &apps));
+            while((err = ticalcs_calc_get_dirlist(calc_handle, &vars, &apps)));
 
             log(LEVEL_DEBUG, "Got dirlist\n");
 
-            int noshell_idx = get_program_index(apps, "Noshell ");
-            if(noshell_idx == -1) {
-                log(LEVEL_ERROR, "Could not find noshell. Exiting\n");
+            if((err = start_app(apps, "Noshell ", 0))) {
+                log(LEVEL_ERROR, "Could not start Noshell. Is it installed?\n");
+                cleanup();
                 return 1;
             }
 
-            send_key(KEY83P_AppsMenu, 1);
-            for(int i = 0; i < noshell_idx; i++) {
-                send_key(KEY83P_Down, 1);
+            ticables_options_set_timeout(cable_handle, CABLE_FAST_TIMEOUT);
+            send_key(ticalcs_keys_83p('1')->normal.value, 0);
+            send_key(KEY83P_Enter, 0);
+            send_key(ticalcs_keys_83p('6')->normal.value, 0);
+            ticables_options_set_timeout(cable_handle, CABLE_TIMEOUT);
+
+            if((err = start_app(vars, program, 1))) {
+                log(LEVEL_ERROR, "Could not start %s. Is it installed?\n", program);
+                cleanup();
+                return 1;
             }
-            //send_key(KEY83P_Enter, 0);
 
+            cleanup();
             return 1;
-
-            get_program_index(vars, program);
 
             // There has to be a better way to do this...
             // Select a program then delete the name,
@@ -236,11 +321,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    ticalcs_cable_detach(calc_handle);
-    ticalcs_handle_del(calc_handle);
-    ticables_cable_close(cable_handle);
-    ticables_handle_del(cable_handle);
-    ticables_library_exit();
-
+    cleanup();
     return 0;
 }
