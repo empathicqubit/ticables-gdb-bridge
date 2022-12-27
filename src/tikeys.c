@@ -54,7 +54,6 @@ static int compare(const void *a, const void *b) {
 static int get_program_index(GNode *tree, char* program) {
     char *names[1024];
     int n = 0;
-    bool has_program = false;
 
     for (int i = 0; i < (int)g_node_n_children(tree); i++) {
         GNode *parent = g_node_nth_child(tree, i);
@@ -64,19 +63,15 @@ static int get_program_index(GNode *tree, char* program) {
             GNode *child = g_node_nth_child(parent, j);
             ve = child->data;
 
-            if(ve != NULL) {
+            if(ve != NULL && ve->name[0] == program[0]) {
                 const char *str_type = tifiles_vartype2string(model, ve->type);
-
                 bool is_program = strcmp(&str_type[strlen(str_type) - 4], "PRGM") == 0;
-                if (strlen(str_type) >= 4
+                if (
+                    strlen(str_type) >= 4
                     && (
                         is_program || strcmp(str_type, "APPL") == 0
                     )
                 ) {
-                    if(is_program && strcmp(ve->name, program) == 0) {
-                        has_program = true;
-                    }
-
                     names[n++] = ve->name;
                     log(LEVEL_TRACE, "%s\n", names[n-1]);
                 }
@@ -90,8 +85,7 @@ static int get_program_index(GNode *tree, char* program) {
     for(int i = 0; i < n; i++) {
         log(LEVEL_TRACE, "%s\n", names[i]);
         if(strcmp(names[i], program) == 0) {
-            // Finance is always at the beginning for apps
-            return has_program ? i : i+1;
+            return i;
         }
     }
 
@@ -99,9 +93,8 @@ static int get_program_index(GNode *tree, char* program) {
 }
 
 int start_app(GNode *apps, char *app_name, int is_program) {
-    int noshell_idx = get_program_index(apps, app_name);
-    if(noshell_idx == -1) {
-        log(LEVEL_ERROR, "Could not find %s.\n", app_name);
+    int app_idx = get_program_index(apps, app_name);
+    if(app_idx == -1) {
         return 1;
     }
 
@@ -112,7 +105,9 @@ int start_app(GNode *apps, char *app_name, int is_program) {
         send_key(KEY83P_AppsMenu, 1);
     }
 
-    for(int i = 0; i < noshell_idx; i++) {
+    send_key(ticalcs_keys_83p(app_name[0])->normal.value, 1);
+
+    for(int i = 0; i < app_idx; i++) {
         send_key(KEY83P_Down, 1);
     }
     send_key(KEY83P_Enter, 0);
@@ -298,26 +293,6 @@ int main(int argc, char *argv[]) {
                 cleanup();
                 return 1;
             }
-
-            cleanup();
-            return 1;
-
-            // There has to be a better way to do this...
-            // Select a program then delete the name,
-            // keeping only the pgrm token
-            send_key(KEY83P_Prgm, 1);
-            send_key(KEY83P_Enter, 1);
-            send_key(KEY83P_Up, 1);
-            send_key(KEY83P_Right, 1);
-            for(int i = 0; i < 16; i++) {
-                send_key(KEY83P_Del, 1);
-            }
-
-            // Actually input the name
-            for(int i = 0; i < strlen(program); i++) {
-                send_key(ticalcs_keys_83p(program[i])->normal.value, 1);
-            }
-            send_key(KEY83P_Enter, 0);
         }
     }
 
