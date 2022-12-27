@@ -13,6 +13,15 @@ static pthread_t tid;
 
 static CableHandle* cable_handle;
 
+void show_help() {
+    log(LEVEL_INFO, "Syntax: tibridge [--no-handle-acks|--handle-acks]\n");
+    log(LEVEL_INFO,
+"--no-handle-acks: By default, ACKs (-/+) will be hidden from the client.\n"
+"                  This is necessary for working with z88dk-gdb. If you're\n"
+"                  using a better client, you can disable this."
+    );
+}
+
 int hex(char ch) {
     if ((ch >= 'a') && (ch <= 'f'))
         return (ch - 'a' + 10);
@@ -90,6 +99,8 @@ int main(int argc, char *argv[]) {
     const struct option long_opts[] = {
         {"handle-acks", no_argument, &handle_acks, 1},
         {"no-handle-acks", no_argument, &handle_acks, 0},
+
+        {"help", no_argument, 0, 'h'},
         {0,0,0,0}
     };
 
@@ -99,6 +110,10 @@ int main(int argc, char *argv[]) {
     while((opt = getopt_long(argc, argv, "", long_opts, &opt_index)) != -1) {
         if(opt == 0 && long_opts[opt_index].flag) {
             // Do nothing
+        }
+        else if(opt == 'h') {
+            show_help();
+            return 0;
         }
     }
 

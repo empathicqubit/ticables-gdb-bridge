@@ -20,6 +20,10 @@ static int reset_ram = 0;
 static CalcHandle *calc_handle = NULL;
 static CalcModel model = CALC_NONE;
 
+void show_help() {
+    log(LEVEL_INFO, "Syntax: tikeys [--reset-ram] [--keys=ABCDEFG123456789] [--subtype=mirage --program=PROGNAME]\n");
+}
+
 static void send_key(uint32_t key, int retry) {
     usleep(100000);
     int err;
@@ -68,10 +72,6 @@ static int get_program_index(GNode *tree, char* program) {
     return -1;
 }
 
-void show_help() {
-    log(LEVEL_INFO, "Syntax: tikeys [--reset-ram] [--keys=ABCDEFG123456789] [--subtype=mirage --program=PROGNAME]\n");
-}
-
 int main(int argc, char *argv[]) {
     utils_parse_args(argc, argv);
 
@@ -80,6 +80,7 @@ int main(int argc, char *argv[]) {
         {"program", required_argument, 0, 'p'},
         {"keys", required_argument, 0, 'k'},
         {"reset-ram", no_argument, &reset_ram, 1},
+
         {"help", no_argument, 0, 'h'},
         {0,0,0,0}
     };
