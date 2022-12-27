@@ -42,6 +42,7 @@ void utils_parse_args(int argc, char *argv[]) {
         {0,0,0,0}
     };
 
+    opterr = 0;
     optind = 0;
     int opt_index = 0;
     int opt;
@@ -64,4 +65,6 @@ void utils_parse_args(int argc, char *argv[]) {
             }
         }
     }
+
+    opterr = 1;
 }

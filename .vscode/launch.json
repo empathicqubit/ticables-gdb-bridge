@@ -30,7 +30,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/tikeys",
-            "args": ["--subtype=mirage", "--log-level=trace"],
+            "args": ["--program=u1BERSHRD", "--log-level=trace"],
             "stopAtEntry": true,
             "cwd": "${workspaceFolder}",
             "environment": [],

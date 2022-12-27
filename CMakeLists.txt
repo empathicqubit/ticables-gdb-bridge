@@ -7,8 +7,11 @@ find_package(PkgConfig REQUIRED)
 PKG_CHECK_MODULES(GLIB REQUIRED glib-2.0)
 PKG_CHECK_MODULES(TICABLES REQUIRED ticables2)
 PKG_CHECK_MODULES(TICALCS REQUIRED ticalcs2)
+PKG_CHECK_MODULES(TIFILES REQUIRED tifiles2)
 
 file(GLOB COMMON_SRC src/common/*.c)
+
+####################################### TIBRIDGE ###############################
 
 file(GLOB TIBRIDGE_SRC src/tibridge.c)
 
@@ -30,6 +33,8 @@ target_link_directories(tibridge PRIVATE ${TICABLES_LIBRARIES})
 
 PKG_CHECK_MODULES(READLINE REQUIRED readline)
 
+####################################### TIKEYS ###############################
+
 file(GLOB TIKEYS_SRC src/tikeys.c)
 
 add_executable(tikeys ${COMMON_SRC} ${TIKEYS_SRC})
@@ -41,15 +46,18 @@ target_include_directories(tikeys
 	PRIVATE ${GLIB_INCLUDE_DIRS}
 	PRIVATE ${TICABLES_INCLUDE_DIRS}
 	PRIVATE ${TICALCS_INCLUDE_DIRS}
+	PRIVATE ${TIFILES_INCLUDE_DIRS}
 	PRIVATE ${READLINE_INCLUDE_DIRS}
 )
 
 target_link_libraries(tikeys PRIVATE ${GLIB_LIBRARIES})
 target_link_libraries(tikeys PRIVATE ${TICABLES_LIBRARIES})
 target_link_libraries(tikeys PRIVATE ${TICALCS_LIBRARIES})
+target_link_libraries(tikeys PRIVATE ${TIFILES_LIBRARIES})
 target_link_libraries(tikeys PRIVATE ${READLINE_LIBRARIES})
 
 target_link_directories(tikeys PRIVATE ${GLIB_LIBRARY_DIRS})
 target_link_directories(tikeys PRIVATE ${TICABLES_LIBRARIES})
 target_link_directories(tikeys PRIVATE ${TICALCS_LIBRARIES})
+target_link_directories(tikeys PRIVATE ${TIFILES_LIBRARIES})
 target_link_directories(tikeys PRIVATE ${READLINE_LIBRARIES})

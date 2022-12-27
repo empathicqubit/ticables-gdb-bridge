@@ -2,35 +2,53 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <stdlib.h>
-#include <pthread.h>
-#include <error.h>
 #include <unistd.h>
-#include <signal.h>
 #include <getopt.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include "common/utils.h"
 
-static CableDeviceInfo EmptyInfo;
-
 static pthread_t tid;
 
-static CableHandle* handle;
+static CableHandle* cable_handle;
 
-static CablePort port;
-static CableModel model;
+int hex(char ch) {
+    if ((ch >= 'a') && (ch <= 'f'))
+        return (ch - 'a' + 10);
+    if ((ch >= '0') && (ch <= '9'))
+        return (ch - '0');
+    if ((ch >= 'A') && (ch <= 'F'))
+        return (ch - 'A' + 10);
+    return (-1);
+}
+
+uint8_t *hex2mem(const char *buf, uint8_t *mem, uint32_t count) {
+    unsigned char ch;
+    for (int i = 0; i < count; i++)
+    {
+        ch = hex(*buf++) << 4;
+        ch = ch + hex(*buf++);
+        *(mem++) = (char)ch;
+    }
+    return (mem);
+}
 
 void reset_cable(void) {
-    unsigned char err;
-    ticables_cable_reset(handle);
-    ticables_cable_close(handle);
-    ticables_handle_del(handle);
-    handle = ticables_handle_new(model, port);
-    ticables_options_set_delay(handle, 1);
-    ticables_options_set_timeout(handle, 5);
+    CablePort port;
+    CableModel model;
+    port = cable_handle->port;
+    model = cable_handle->model;
+    int err;
+    ticables_cable_reset(cable_handle);
+    ticables_cable_close(cable_handle);
+    ticables_handle_del(cable_handle);
+    cable_handle = ticables_handle_new(model, port);
+    ticables_options_set_delay(cable_handle, 1);
+    ticables_options_set_timeout(cable_handle, 5);
 
-    while(err = ticables_cable_open(handle)) {
-        fprintf(stderr, "Could not open cable: %d\n", err);
+    while(err = ticables_cable_open(cable_handle)) {
+        log(LEVEL_ERROR, "Could not open cable: %d\n", err);
     }
 }
 
@@ -38,7 +56,7 @@ void retry_send(unsigned char* send, int sendCount) {
     unsigned char err = 0;
     log(LEVEL_DEBUG, "%d->", sendCount);
     log(LEVEL_TRACE, "%.*s\n", sendCount, send);
-    while(err = ticables_cable_send(handle, send, sendCount)) {
+    while(err = ticables_cable_send(cable_handle, send, sendCount)) {
         log(LEVEL_ERROR, "Error sending: %d", err);
         reset_cable();
     }
@@ -61,7 +79,6 @@ void retry_recv(unsigned char* recv, int recvCount) {
 }
 
 int main(int argc, char *argv[]) {
-    int err;
     // z88dk-gdb doesn't like the ACKs -/+, so we just hide them
     int handle_acks = 1;
 
@@ -87,30 +104,33 @@ int main(int argc, char *argv[]) {
 
     log(LEVEL_DEBUG, "handle acks: %d\n", handle_acks);
 
+    int err;
     ticables_library_init();
 
     log(LEVEL_INFO, "PROCESS ID: %d\n", getpid());
 
-    handle = utils_setup_cable();
-    if(handle == NULL) {
+    cable_handle = utils_setup_cable();
+    if(cable_handle == NULL) {
         log(LEVEL_ERROR, "Cable not found!\n");
         return 1;
     }
 
-    err = ticables_cable_open(handle);
+    //ticables_options_set_timeout(cable_handle , 1 * 60 * 60 * 10);
+
+    err = ticables_cable_open(cable_handle);
     if(err) {
         log(LEVEL_ERROR, "Could not open cable: %d\n", err);
         return 1;
     }
 
-    CableDeviceInfo info = EmptyInfo;
-    err = ticables_cable_get_device_info(handle, &info);
+    CableDeviceInfo info;
+    err = ticables_cable_get_device_info(cable_handle, &info);
     if(err) {
         log(LEVEL_ERROR, "Could not read device info: %d\n", err);
         return 1;
     }
 
-    log(LEVEL_INFO, "INFO: Model %d, Port:%d, Family %d, Variant %d\n", model, port, info.family, info.variant);
+    log(LEVEL_INFO, "Cable Family %d, Variant %d\n", info.family, info.variant);
 
     bool handled_first_recv = false;
 
@@ -124,7 +144,7 @@ int main(int argc, char *argv[]) {
         log(LEVEL_DEBUG, "RECEIVE PHASE\n");
         while(true) {
             do {
-                if(err = ticables_cable_recv(handle, &recv[recvCount], 1)) {
+                if(err = ticables_cable_recv(cable_handle, &recv[recvCount], 1)) {
                     log(LEVEL_ERROR, "error receiving: %d\n", err);
                 }
             } while(err);
@@ -132,17 +152,33 @@ int main(int argc, char *argv[]) {
             recvCount++;
             if(current == '#') {
                 do {
-                    if(err = ticables_cable_recv(handle, &recv[recvCount], 2)) {
+                    if(err = ticables_cable_recv(cable_handle, &recv[recvCount], 2)) {
                         log(LEVEL_ERROR, "error receiving: %d\n", err);
                     }
                 } while(err);
                 recvCount += 2;
+
+                recv[recvCount] = '\0';
 
                 if(!handle_acks || handled_first_recv) {
                     retry_recv(recv, recvCount);
                 }
                 else {
                     log(LEVEL_DEBUG, "Discarded the first packet\n");
+                }
+
+                char *packet_char = strchr(recv, '$');
+                if(packet_char) {
+                    packet_char++;
+
+                    if(*packet_char == 'O') {
+                        int data_size = (recvCount - 5) / 2;
+                        char buf[data_size];
+                        hex2mem(&packet_char[1], buf, data_size);
+                        log(LEVEL_INFO, "\n%.*s", data_size, buf);
+                        recvCount = 0;
+                        continue;
+                    }
                 }
 
                 if(handle_acks) {
