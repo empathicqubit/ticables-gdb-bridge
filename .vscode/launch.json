@@ -4,7 +4,7 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-        
+
         {
             "name": "tibridge",
             "type": "cppdbg",
@@ -30,7 +30,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/tikeys",
-            "args": ["-m", "83p", "-r", "-t", "${workspaceFolder}/build/program.8xp", "-k", "BLAH", "-s", "noshell", "-p", "CRACKERS", "--log-level=trace"],
+            "args": ["-s=noshell", "-p=CRACKERS", "--log-level=trace"],
             "stopAtEntry": true,
             "cwd": "${workspaceFolder}",
             "environment": [],

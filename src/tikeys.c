@@ -93,7 +93,63 @@ static int get_program_index(GNode *tree, char* program) {
     return -1;
 }
 
-int start_app(GNode *apps, char *app_name, int is_program) {
+static VarEntry* get_program(GNode *tree, char* program) {
+    for (int i = 0; i < (int)g_node_n_children(tree); i++) {
+        GNode *parent = g_node_nth_child(tree, i);
+        VarEntry *ve = parent->data;
+
+        for (int j = 0; j < (int)g_node_n_children(parent); j++) {
+            GNode *child = g_node_nth_child(parent, j);
+            ve = child->data;
+
+            if(ve != NULL && strcmp(ve->name, program) == 0) {
+                return ve;
+            }
+        }
+    }
+
+    return NULL;
+}
+
+int start_app(GNode *apps, char *app_name, bool is_program) {
+    static const CalcModel allowed_models[] = {
+        CALC_TI83,
+        CALC_TI83P,
+        CALC_TI84P,
+        CALC_TI84P_USB,
+        CALC_TI84PC,
+        CALC_TI84PC_USB,
+        CALC_TI83PCE_USB,
+        CALC_TI84PCE_USB,
+        CALC_TI84PT_USB,
+    };
+
+    bool is_ti8x = false;
+    for(int i = 0; i < sizeof(allowed_models)/sizeof(allowed_models[0]); i++) {
+        if(allowed_models[i] == model) {
+            is_ti8x = true;
+            break;
+        }
+    }
+
+    // We use my function for apps on TI8x, and the builtin for programs
+    if(is_program || !is_ti8x) {
+        VarEntry *app = get_program(apps, app_name);
+        if(app == NULL) {
+            return 1;
+        }
+
+        if(is_ti8x && strcmp(tifiles_vartype2string(model, app->type), "PPRGM") == 0) {
+            // We remap TI8x assembly programs so noshell can do its work
+            // it doesn't like the Asm( token
+            app->type = tifiles_string2vartype(model, "PRGM");
+        }
+
+        ticalcs_calc_execute(calc_handle, app, "");
+
+        return 0;
+    }
+
     int app_idx = get_program_index(apps, app_name);
     if(app_idx == -1) {
         return 1;
@@ -119,6 +175,7 @@ int start_app(GNode *apps, char *app_name, int is_program) {
 
     return 0;
 }
+
 
 void handle_sigint(int code) {
     cleanup();
@@ -255,7 +312,7 @@ int main(int argc, char *argv[]) {
             send_key(ticalcs_keys_83p(keys[i])->normal.value, 1);
         }
     }
-    
+
     if(strlen(subtype) > 0 || strlen(program) > 0) {
         log(LEVEL_DEBUG, "Got a program startup request.\n");
 
@@ -298,12 +355,18 @@ int main(int argc, char *argv[]) {
                 log(LEVEL_WARN, "Subtype was not recognized! It will be started with noshell!\n");
             }
 
-            log(LEVEL_INFO, "Verifying that noshell is correctly hooked.\n");
-
             GNode *vars, *apps;
             while((err = ticalcs_calc_get_dirlist(calc_handle, &vars, &apps)));
 
             log(LEVEL_DEBUG, "Got dirlist\n");
+
+            if(get_program(vars, program) == NULL) {
+                log(LEVEL_ERROR, "Could not find %s. Is it installed? Error %d\n", program, err);
+                cleanup();
+                return 1;
+            }
+
+            log(LEVEL_INFO, "Verifying that noshell is correctly hooked.\n");
 
             if((err = start_app(apps, "Noshell ", 0))) {
                 log(LEVEL_ERROR, "Could not start Noshell. Is it installed?\n");
@@ -318,7 +381,7 @@ int main(int argc, char *argv[]) {
             ticables_options_set_timeout(cable_handle, CABLE_TIMEOUT);
 
             if((err = start_app(vars, program, 1))) {
-                log(LEVEL_ERROR, "Could not start %s. Is it installed?\n", program);
+                log(LEVEL_ERROR, "Could not start %s. Is it installed? Error %d\n", program, err);
                 cleanup();
                 return 1;
             }
