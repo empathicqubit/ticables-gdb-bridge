@@ -385,6 +385,8 @@ int main(int argc, char *argv[]) {
                 cleanup();
                 return 1;
             }
+
+            log(LEVEL_INFO, "Finished sucessfully!\n");
         }
     }
 
