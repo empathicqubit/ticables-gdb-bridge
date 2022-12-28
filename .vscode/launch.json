@@ -30,7 +30,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/tikeys",
-            "args": ["--program=u1BERSHRD", "--log-level=trace"],
+            "args": ["-m", "83p", "-r", "-t", "${workspaceFolder}/build/program.8xp", "-k", "BLAH", "-s", "noshell", "-p", "CRACKERS", "--log-level=trace"],
             "stopAtEntry": true,
             "cwd": "${workspaceFolder}",
             "environment": [],

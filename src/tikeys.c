@@ -18,15 +18,16 @@
 
 static char *subtype = "";
 static char *program = "";
+static char *model_requested = "";
 static char *keys = "";
 static int reset_ram = 0;
 
 static CalcHandle *calc_handle = NULL;
 static CableHandle *cable_handle = NULL;
-static CalcModel model = CALC_NONE;
+static CalcModel model = CALC_TI83P;
 
 void show_help() {
-    log(LEVEL_INFO, "Syntax: tikeys [--reset-ram] [--keys=ABCDEFG123456789] [--subtype=mirage --program=PROGNAME]\n");
+    log(LEVEL_INFO, "Syntax: tikeys [-m|--model=83p] [-r|--reset-ram] [-k|--keys=AZ09] [[-s|--subtype=noshell] -p|--program=PROGNAME]\n");
 }
 
 void cleanup() {
@@ -131,10 +132,11 @@ int main(int argc, char *argv[]) {
     utils_parse_args(argc, argv);
 
     const struct option long_opts[] = {
+        {"calc", required_argument, 0, 'c'},
+        {"reset-ram", no_argument, &reset_ram, 1},
+        {"keys", required_argument, 0, 'k'},
         {"subtype", required_argument, 0, 's'},
         {"program", required_argument, 0, 'p'},
-        {"keys", required_argument, 0, 'k'},
-        {"reset-ram", no_argument, &reset_ram, 1},
 
         {"help", no_argument, 0, 'h'},
         {0,0,0,0}
@@ -143,9 +145,25 @@ int main(int argc, char *argv[]) {
     optind = 0;
     int opt_index = 0;
     int opt;
-    while((opt = getopt_long(argc, argv, "s:p:", long_opts, &opt_index)) != -1) {
+    while((opt = getopt_long(argc, argv, ":c:rt:k:s:p:h", long_opts, &opt_index)) != -1) {
+        if(optarg != NULL && strncmp(optarg, "=", 1) == 0) {
+            optarg = &optarg[1];
+        }
+
         if(opt == 0 && long_opts[opt_index].flag) {
             // Do nothing
+        }
+        else if(optarg != NULL && (strncmp(optarg, "-", 1) == 0)) {
+            log(LEVEL_ERROR, "Argument for -%c started with a -: %s\n", opt, optarg);
+            show_help();
+            cleanup();
+            return 1;
+        }
+        else if(opt == ':') {
+            log(LEVEL_ERROR, "-%s requires an argument\n", optarg);
+            show_help();
+            cleanup();
+            return 1;
         }
         else if(opt == 's') {
             subtype = optarg;
@@ -159,6 +177,9 @@ int main(int argc, char *argv[]) {
         else if(opt == 'r') {
             reset_ram = 1;
         }
+        else if(opt == 'c') {
+            model_requested = optarg;
+        }
         else if(opt == 'h') {
             show_help();
             cleanup();
@@ -169,6 +190,16 @@ int main(int argc, char *argv[]) {
     log(LEVEL_TRACE, "Subtype: %s\n", subtype);
     log(LEVEL_TRACE, "Keys: %s\n", keys);
     log(LEVEL_TRACE, "Reset RAM: %d\n", reset_ram);
+    log(LEVEL_TRACE, "Model Requested: %s\n", model_requested);
+
+    if(strlen(model_requested) != 0) {
+        model = ticalcs_string_to_model(model_requested);
+        if(model == CALC_NONE) {
+            log(LEVEL_ERROR, "Invalid calculator model\n");
+            cleanup();
+            return 1;
+        }
+    }
 
     int err;
     ticables_library_init();
@@ -203,12 +234,10 @@ int main(int argc, char *argv[]) {
     }
 
     ticables_handle_del(cable_handle);
-    
+
     cable_handle = utils_setup_cable();
 
     ticables_options_set_timeout(cable_handle, CABLE_TIMEOUT);
-
-    model = CALC_TI83P;
 
     calc_handle = ticalcs_handle_new(model);
     ticalcs_cable_attach(calc_handle, cable_handle);
