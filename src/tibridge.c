@@ -162,6 +162,7 @@ int main(int argc, char *argv[]) {
                 }
             } while(err);
             current = recv[recvCount];
+            log(LEVEL_TRACE, "%c", current);
             recvCount++;
             if(current == '#') {
                 do {
