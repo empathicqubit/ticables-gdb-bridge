@@ -6,6 +6,7 @@
 #include <getopt.h>
 #include <stdbool.h>
 #include <string.h>
+#include <signal.h>
 
 #include "common/utils.h"
 
@@ -85,7 +86,23 @@ void retry_recv(uint8_t* recv, int recvCount) {
     fflush(stdout);
 }
 
+void cleanup() {
+    if(cable_handle) {
+        ticables_cable_close(cable_handle);
+        ticables_handle_del(cable_handle);
+    }
+    ticables_library_exit();
+}
+
+void handle_sigint(int code) {
+    cleanup();
+}
+
 int main(int argc, char *argv[]) {
+    struct sigaction sa;
+    sa.sa_handler = handle_sigint;
+    sigaction(SIGINT, &sa, NULL);
+
     // z88dk-gdb doesn't like the ACKs -/+, so we just hide them
     int handle_acks = 1;
 
