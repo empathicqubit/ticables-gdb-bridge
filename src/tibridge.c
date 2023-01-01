@@ -106,10 +106,11 @@ void retry_write_host(uint8_t* recv, int recvCount) {
 void retry_read_host(void* buf, unsigned int count) {
     if(connectionFd == -1) {
         connectionFd = accept(listenFd, NULL, NULL);
+        log(LEVEL_DEBUG, "Accepted connection\n");
     }
 
     int c = 0;
-    while(c <= count) {
+    while(c < count) {
         int s = read(connectionFd, buf, count - c);
         if(s <= 0) {
             close(connectionFd);
