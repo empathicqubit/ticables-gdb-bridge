@@ -8,6 +8,9 @@
 #include <string.h>
 #include <signal.h>
 
+#include <sys/socket.h>
+#include <netinet/in.h>
+
 #include "common/utils.h"
 
 static CableHandle* cable_handle;
@@ -60,7 +63,7 @@ void reset_cable(void) {
     }
 }
 
-void retry_send(uint8_t* send, int sendCount) {
+void retry_write_calc(uint8_t* send, int sendCount) {
     unsigned char err = 0;
     log(LEVEL_DEBUG, "%d->", sendCount);
     log(LEVEL_TRACE, "%.*s\n", sendCount, send);
@@ -71,25 +74,64 @@ void retry_send(uint8_t* send, int sendCount) {
 }
 
 void ack() {
-    retry_send((uint8_t*)"+", 1);
+    retry_write_calc((uint8_t*)"+", 1);
 }
 
 void nack() {
-    retry_send((uint8_t*)"-", 1);
+    retry_write_calc((uint8_t*)"-", 1);
 }
 
-void retry_recv(uint8_t* recv, int recvCount) {
+int listenFd = -1;
+int connectionFd = -1;
+
+void retry_write_host(uint8_t* recv, int recvCount) {
+    if(connectionFd == -1) {
+        connectionFd = accept(listenFd, NULL, NULL);
+    }
+
     log(LEVEL_DEBUG, "%d<-", recvCount);
     log(LEVEL_TRACE, "%.*s\n", recvCount, recv)
     int c = 0;
-    while((c += fwrite(&recv[c], 1, recvCount - c, stdout)) < recvCount);
-    fflush(stdout);
+    while(c < recvCount) {
+        int s = write(connectionFd, &recv[c], recvCount - c);
+        if(s <= 0) {
+            close(connectionFd);
+            connectionFd = accept(listenFd, NULL, NULL);
+            continue;
+        }
+        c += s;
+    }
+}
+
+void retry_read_host(void* buf, unsigned int count) {
+    if(connectionFd == -1) {
+        connectionFd = accept(listenFd, NULL, NULL);
+    }
+
+    int c = 0;
+    while(c <= count) {
+        int s = read(connectionFd, buf, count - c);
+        if(s <= 0) {
+            close(connectionFd);
+            connectionFd = accept(listenFd, NULL, NULL);
+            continue;
+        }
+        c += s;
+    }
 }
 
 void cleanup() {
     if(cable_handle) {
         ticables_cable_close(cable_handle);
         ticables_handle_del(cable_handle);
+    }
+    if(connectionFd != -1) {
+        close(connectionFd);
+        connectionFd = -1;
+    }
+    if(listenFd != -1) {
+        close(listenFd);
+        listenFd = -1;
     }
     ticables_library_exit();
 }
@@ -98,22 +140,43 @@ void handle_sigint(int code) {
     cleanup();
 }
 
+int setup_connection(unsigned int port) {
+    char sendBuf[1025];
+    struct sockaddr_in serv_addr;
+    int listenfd = socket(AF_INET, SOCK_STREAM, 0);
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    memset(sendBuf, 0, sizeof(sendBuf));
+
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    serv_addr.sin_port = htons(port);
+
+    bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)); 
+
+    listen(listenfd, 1); 
+
+    return listenfd;
+}
+
 int main(int argc, char *argv[]) {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stdin, NULL, _IONBF, 0);
+
     struct sigaction sa;
     sa.sa_handler = handle_sigint;
     sigaction(SIGINT, &sa, NULL);
 
     // z88dk-gdb doesn't like the ACKs -/+, so we just hide them
     int handle_acks = 1;
-
-    setvbuf(stdout, NULL, _IONBF, 0);
-    setvbuf(stdin, NULL, _IONBF, 0);
+    unsigned int port = 8998;
 
     utils_parse_args(argc, argv);
 
     const struct option long_opts[] = {
         {"handle-acks", no_argument, &handle_acks, 1},
         {"no-handle-acks", no_argument, &handle_acks, 0},
+
+        {"port", required_argument, 0, 'p'},
 
         {"help", no_argument, 0, 'h'},
         {0,0,0,0}
@@ -122,9 +185,21 @@ int main(int argc, char *argv[]) {
     optind = 0;
     int opt_index = 0;
     int opt;
-    while((opt = getopt_long(argc, argv, "", long_opts, &opt_index)) != -1) {
+    while((opt = getopt_long(argc, argv, ":p:", long_opts, &opt_index)) != -1) {
+        if(optarg != NULL && strncmp(optarg, "=", 1) == 0) {
+            optarg = &optarg[1];
+        }
+
         if(opt == 0 && long_opts[opt_index].flag) {
             // Do nothing
+        }
+        else if(optarg != NULL && (strncmp(optarg, "-", 1) == 0)) {
+            log(LEVEL_ERROR, "Argument for -%c started with a -: %s\n", opt, optarg);
+            show_help();
+            return 1;
+        }
+        else if(opt == 'p') {
+            sscanf(optarg, "%u", &port);
         }
         else if(opt == 'h') {
             show_help();
@@ -133,6 +208,9 @@ int main(int argc, char *argv[]) {
     }
 
     log(LEVEL_DEBUG, "handle acks: %d\n", handle_acks);
+    log(LEVEL_DEBUG, "port: %d\n", port);
+
+    listenFd = setup_connection(port);
 
     int err;
     ticables_library_init();
@@ -168,7 +246,6 @@ int main(int argc, char *argv[]) {
         uint8_t recv[1023];
         unsigned char current = 0;
         int recvCount = 0;
-        int c;
 
         log(LEVEL_INFO, "<");
         log(LEVEL_DEBUG, "RECEIVE PHASE\n");
@@ -192,7 +269,7 @@ int main(int argc, char *argv[]) {
                 recv[recvCount] = '\0';
 
                 if(!handle_acks || handled_first_recv) {
-                    retry_recv(recv, recvCount);
+                    retry_write_host(recv, recvCount);
                 }
                 else {
                     log(LEVEL_DEBUG, "Discarded the first packet\n");
@@ -226,7 +303,7 @@ int main(int argc, char *argv[]) {
             else if(recvCount == 1) {
                 if(current == '-') {
                     if(!handle_acks) {
-                        retry_recv(recv, recvCount);
+                        retry_write_host(recv, recvCount);
                     }
                     else {
                         log(LEVEL_DEBUG, "Discarding a NACK\n");
@@ -251,11 +328,11 @@ int main(int argc, char *argv[]) {
             int sendCount = 0;
 
             while(true) {
-                while((c = read(0, &send[sendCount], 1)) <= 0);
+                retry_read_host(&send[sendCount], 1);
                 current = send[sendCount];
                 sendCount++;
                 if(current == '#') {
-                    read(0, &send[sendCount], 2);
+                    retry_read_host(&send[sendCount], 2);
                     sendCount += 2;
                     break;
                 }
@@ -264,7 +341,7 @@ int main(int argc, char *argv[]) {
                 }
             }
 
-            retry_send(send, sendCount);
+            retry_write_calc(send, sendCount);
             break;
         }
     }
