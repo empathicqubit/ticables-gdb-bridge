@@ -73,6 +73,16 @@ void retry_write_calc(uint8_t* send, int sendCount) {
     }
 }
 
+void retry_read_calc(uint8_t* recv, int getCount) {
+    int err;
+    do {
+        if((err = ticables_cable_recv(cable_handle, recv, getCount))) {
+            log(LEVEL_ERROR, "error receiving: %d\n", err);
+        }
+    } while(err);
+    log(LEVEL_TRACE, "%.*s", getCount, recv);
+}
+
 void ack() {
     retry_write_calc((uint8_t*)"+", 1);
 }
@@ -245,27 +255,25 @@ int main(int argc, char *argv[]) {
 
     while(true) {
         uint8_t recv[1023];
-        unsigned char current = 0;
         int recvCount = 0;
 
         log(LEVEL_INFO, "<");
         log(LEVEL_DEBUG, "RECEIVE PHASE\n");
         while(true) {
-            do {
-                if((err = ticables_cable_recv(cable_handle, &recv[recvCount], 1))) {
-                    log(LEVEL_ERROR, "error receiving: %d\n", err);
+            int getCount = 1;
+            unsigned char *current = NULL;
+            if(recvCount > 0 && memchr(recv, '$', recvCount)) {
+                getCount = 3;
+            }
+
+            retry_read_calc(&recv[recvCount], getCount);
+            recvCount += getCount;
+            if((current = memchr(&recv[recvCount-getCount], '#', getCount))) {
+                getCount = 2 - ((&recv[recvCount]) - current - 1);
+                if(getCount > 0) {
+                    retry_read_calc(&recv[recvCount], getCount);
+                    recvCount += getCount;
                 }
-            } while(err);
-            current = recv[recvCount];
-            log(LEVEL_TRACE, "%c", current);
-            recvCount++;
-            if(current == '#') {
-                do {
-                    if((err = ticables_cable_recv(cable_handle, &recv[recvCount], 2))) {
-                        log(LEVEL_ERROR, "error receiving: %d\n", err);
-                    }
-                } while(err);
-                recvCount += 2;
 
                 recv[recvCount] = '\0';
 
@@ -302,7 +310,8 @@ int main(int argc, char *argv[]) {
                 break;
             }
             else if(recvCount == 1) {
-                if(current == '-') {
+                current = &recv[recvCount - 1];
+                if(*current == '-') {
                     if(!handle_acks) {
                         retry_write_host(recv, recvCount);
                     }
@@ -312,7 +321,7 @@ int main(int argc, char *argv[]) {
                     recvCount = 0;
                     break;
                 }
-                else if(current == '+') {
+                else if(*current == '+') {
                     continue;
                 }
             }
@@ -325,6 +334,7 @@ int main(int argc, char *argv[]) {
         log(LEVEL_INFO, ">");
         log(LEVEL_DEBUG, "SEND PHASE\n");
         while(true) {
+            uint8_t current;
             uint8_t send[255];
             int sendCount = 0;
 
