@@ -152,9 +152,9 @@ int setup_connection(unsigned int port) {
     serv_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     serv_addr.sin_port = htons(port);
 
-    bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)); 
+    bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
 
-    listen(listenfd, 1); 
+    listen(listenfd, 1);
 
     return listenfd;
 }
@@ -224,7 +224,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    //ticables_options_set_timeout(cable_handle , 1 * 60 * 60 * 10);
+    ticables_options_set_timeout(cable_handle , 1 * 60 * 60 * 10);
 
     err = ticables_cable_open(cable_handle);
     if(err) {
