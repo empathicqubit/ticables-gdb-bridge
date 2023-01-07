@@ -33,7 +33,9 @@
         "system_error": "cpp",
         "tuple": "cpp",
         "typeinfo": "cpp",
-        "cstddef": "c"
+        "cstddef": "c",
+        "keys83p.h": "c",
+        "stdlib.h": "c"
     },
     "cmake.configureOnOpen": true
 }
